@@ -500,6 +500,7 @@ class TrainingArguments:
             )
         },
     )
+    sep_parallel_degree: int = field(default=-1, metadata={"help": ("-1 for not use sep parallel")})
     recompute: bool = field(
         default=False,
         metadata={
@@ -690,7 +691,7 @@ class TrainingArguments:
         if len(self.sharding) == 0 and self.sharding_parallel_degree > 0:
             warnings.warn("`--sharding_parallel_degree` is useful only when `--sharding` is specified.")
 
-        if len(self.sharding) > 0 or self.tensor_parallel_degree > 1 or self.pipeline_parallel_degree > 1:
+        if len(self.sharding) > 0 or self.tensor_parallel_degree > 1 or self.pipeline_parallel_degree > 1 or self.sep_parallel_degree > 1:
             self.use_hybrid_parallel = True
 
         if self.amp_master_grad:
@@ -708,28 +709,30 @@ class TrainingArguments:
             world_size = paddle.distributed.get_world_size()
             tensor_parallel_degree = max(self.tensor_parallel_degree, 1)
             pipeline_parallel_degree = max(self.pipeline_parallel_degree, 1)
+            sep_parallel_degree = max(self.sep_parallel_degree, 1)
 
             assert (
-                world_size % (tensor_parallel_degree * pipeline_parallel_degree) == 0
-            ), f"Total world_size:{world_size} shoule be devided by tensor_parallel_degree: {self.tensor_parallel_degree} and pipeline_parallel_degree: {self.pipeline_parallel_degree}."
+                world_size % (tensor_parallel_degree * pipeline_parallel_degree * sep_parallel_degree) == 0
+            ), f"Total world_size:{world_size} shoule be devided by tensor_parallel_degree: {self.tensor_parallel_degree} and pipeline_parallel_degree: {self.pipeline_parallel_degree} and sep_parallel_degree: {sep_parallel_degree}."
 
             if self.sharding_parallel_degree == -1:
                 if len(self.sharding) > 0:
-                    self.sharding_parallel_degree = world_size // (tensor_parallel_degree * pipeline_parallel_degree)
+                    self.sharding_parallel_degree = world_size // (tensor_parallel_degree * pipeline_parallel_degree * sep_parallel_degree)
 
             sharding_parallel_degree = max(self.sharding_parallel_degree, 1)
             if sharding_parallel_degree == 1 and len(self.sharding) > 0:
                 logger.warning("sharding_parallel_degree=1 means no sharding, please set sharding to empty!")
                 self.sharding = []
 
-            assert world_size % (sharding_parallel_degree * tensor_parallel_degree * pipeline_parallel_degree) == 0, (
+            assert world_size % (sharding_parallel_degree * tensor_parallel_degree * pipeline_parallel_degree * sep_parallel_degree) == 0, (
                 "The world size for workers should be divided by sharding_parallel_degree, tensor_parallel_degree, and pipeline_parallel_degree, "
                 "sharding_parallel_degree:{sharding_parallel_degree}, tensor_parallel_degree:{tensor_parallel_degree}, "
                 "pipeline_parallel_degree:{pipeline_parallel_degree}, "
+                "sep_parallel_degree:{sep_parallel_degree}, "
                 " world_size:{world_size}"
             )
             self.data_parallel_degree = world_size // (
-                sharding_parallel_degree * tensor_parallel_degree * pipeline_parallel_degree
+                sharding_parallel_degree * tensor_parallel_degree * pipeline_parallel_degree * sep_parallel_degree
             )
 
             if ShardingOption.OFFLOAD in self.sharding or ShardingOption.FULL_SHARD in self.sharding:
@@ -787,6 +790,7 @@ class TrainingArguments:
                     "dp_degree": self.data_parallel_degree,
                     "mp_degree": tensor_parallel_degree,
                     "pp_degree": pipeline_parallel_degree,
+                    "sep_degree": sep_parallel_degree,
                     "sharding_degree": sharding_parallel_degree,
                 }
 
