@@ -360,12 +360,31 @@ class Trainer:
             self.do_grad_scaling = True if args.fp16 else False
             self.amp_dtype = "float16" if args.fp16 else "bfloat16"
             # fix for load saved fp16 or bf16 ckpt, decorate model first.
+
+            dit_excluded_layers = []
+            def is_use_fp32(name):
+                if 'vae' in name or 'text_encoder' in name:
+                    return False
+                if name == 'dit' or name == "dit.in_blocks" or name == "dit.out_blocks"  or name == "dit.mid_block":
+                    return False
+                if name.split(".")[-1].isdigit():
+                    return False
+                if "spatial_cross_attn" in name:
+                    return False
+                if "spatial_temp_attn" in name and "spatial_temp_attn_norm" not in name:
+                    return False
+                return True
+
+            for name, sublayer in model.named_sublayers():
+                if is_use_fp32(name):
+                    dit_excluded_layers.append(sublayer)
+
             if self.args.fp16_opt_level == "O2":
                 paddle.amp.decorate(
                     models=model,
                     level=self.args.fp16_opt_level,
                     dtype=self.amp_dtype,
-                    excluded_layers=QuantizationLinear,
+                    excluded_layers=[QuantizationLinear] + dit_excluded_layers,
                 )
             # for pipeline mode and pure tensor parallel
             if self.args.pipeline_parallel_degree > 1 or (
@@ -1649,12 +1668,31 @@ class Trainer:
         # Mixed precision training
         if training and self.do_grad_scaling:  # self.args.fp16_opt_level=="O2":
             # model, self.optimizer
+
+            dit_excluded_layers = []
+            def is_use_fp32(name):
+                if 'vae' in name or 'text_encoder' in name:
+                    return False
+                if name == 'dit' or name == "dit.in_blocks" or name == "dit.out_blocks" or name == "dit.mid_block":
+                    return False
+                if name.split(".")[-1].isdigit():
+                    return False
+                if "spatial_cross_attn" in name:
+                    return False
+                if "spatial_temp_attn" in name and "spatial_temp_attn_norm" not in name:
+                    return False
+                return True
+
+            for name, sublayer in model.named_sublayers():
+                if is_use_fp32(name):
+                    dit_excluded_layers.append(sublayer)
+
             decorated = paddle.amp.decorate(
                 models=model,
                 optimizers=self.optimizer,
                 level=self.args.fp16_opt_level,
                 dtype=self.amp_dtype,
-                excluded_layers=QuantizationLinear,
+                excluded_layers=[QuantizationLinear] + dit_excluded_layers,
             )
 
             if self.optimizer is None:
